@@ -3,6 +3,9 @@
 import math
 import smbus
 import time
+import numpy as np
+from scipy.optimize import minimize
+from scipy.optimize import fsolve
 # V0.0.5
 
 class Arm_Device1(object):
@@ -28,10 +31,10 @@ class Arm_Device1(object):
         joints[id-1] = angle
         [x, y, z, ext] = self.get_pos_xyz_proj(joints)
         # do not allow end effector to hit table
-        if z < .5:
+        if z < 0:
             return 0
         #do not allow arm to hit pi/board/other hardware
-        if (joints[1] + joints[2]) > 360:
+        if (joints[1] + joints[2]) > 270:
             return 0
         if x < 0 and (abs(y) < 9 and z < 11 and abs(ext) < 20):
             return 0
@@ -40,10 +43,10 @@ class Arm_Device1(object):
     def checklim6(self, joints):
         [x, y, z, ext] = self.get_pos_xyz_proj(joints)
         # do not allow end effector to hit table
-        if z < .5:
+        if z < 0:
             return 0
         #do not allow arm to hit pi/board/other hardware
-        if (joints[1] + joints[2]) > 360:
+        if (joints[1] + joints[2]) > 270:
             return 0
         if x < 0 and (abs(y) < 9 and z < 11 and abs(ext) < 20):
             print(ext)
@@ -255,7 +258,8 @@ class Arm_Device1(object):
         try:
             self.bus.write_byte_data(self.addr, id + 0x30, 0x0)
             time.sleep(0.003)
-            pos = round(self.bus.read_word_data(self.addr, id + 0x30),2)
+            pos = round(self.bus.read_word_data(self.addr, id + 0x30),4)
+            #print(pos)
         except:
             print('Arm_serial_servo_read I2C error')
             return None
@@ -545,13 +549,13 @@ class Arm_Device1(object):
         theta2 = self.Arm_serial_servo_read(2)
         theta3 = self.Arm_serial_servo_read(3)
         theta4 = self.Arm_serial_servo_read(4)
-        print(theta1, " ", theta2, " ", theta3, " ", theta4, " ")
+        #print(theta1, " ", theta2, " ", theta3, " ", theta4, " ")
 
         theta3 = theta3 - 90
         theta4 = theta4 - 90
 
         ext = (l2*self.cos_deg(theta2) + l3*self.cos_deg(theta2 + theta3) + l4*self.cos_deg(theta2 + theta3 +  theta4))
-        z = round(l2*self.sin_deg(theta2) + l3*self.sin_deg(theta2 + theta3) + l4*self.sin_deg(theta2 + theta3 + theta4) + 11.5, 2)
+        z = round(l2*self.sin_deg(theta2) + l3*self.sin_deg(theta2 + theta3) + l4*self.sin_deg(theta2 + theta3 + theta4) + 12.9, 2)
         x = round(ext*self.sin_deg(theta1),2)
         y = round(ext*self.cos_deg(theta1),2)
 
@@ -568,19 +572,19 @@ class Arm_Device1(object):
         theta2 = joints[1]
         theta3 = joints[2]
         theta4 = joints[3]
-        print(theta1, theta2, theta3, theta4)
+        #print(theta1, theta2, theta3, theta4)
         theta3 = theta3 - 90
         theta4 = theta4 - 90
         ext = (l2*self.cos_deg(theta2) + l3*self.cos_deg(theta2 + theta3) + l4*self.cos_deg(theta2 + theta3 +  theta4))
-        z = round(l2*self.sin_deg(theta2) + l3*self.sin_deg(theta2 + theta3) + l4*self.sin_deg(theta2 + theta3 + theta4) + 12, 2)
+        z = round(l2*self.sin_deg(theta2) + l3*self.sin_deg(theta2 + theta3) + l4*self.sin_deg(theta2 + theta3 + theta4) + 12.9, 2)
         x = round(ext*self.sin_deg(theta1),2)
         y = round(ext*self.cos_deg(theta1),2)
-        print("proj x", x, "proj y", y,"proj z", z)
+        #print("proj x", x, "proj y", y,"proj z", z)
         return [x, y, z, ext]
     #adjust servo position with potentiometer feedback
     
     def pos_feedback_adjust(self, id, angle):
-        print("adjusting")
+        #print("adjusting")
         time1 = 1
         pos1 = self.Arm_serial_servo_read(id)
         time.sleep(.5)
@@ -621,8 +625,64 @@ class Arm_Device1(object):
             self.bus.write_i2c_block_data(self.addr, 0x10 + id, [value_H, value_L, time_H, time_L])
             self.pos_feedback_adjust(id, angle)
         else:
-            print("all good") 
+            #print("all good") 
             return
+            #inverse kinematics
+        
+    def calc_theor_angles(self, x, y, z):
+        #[theta1, theta2, theta3, theta4, theta5, theta6] = self.pos_array()
+        # Define the objective function to minimize deviation from 90 degrees
+
+        def objective(vars):
+            theta2, theta3, theta4 = vars
+            # Minimize the sum of squared deviations from 90 degrees (in radians)
+            return (theta2 - np.pi/2)**2 + (theta3)**2 + (theta4)**2
+        
+        # Define the system of equations as  
+        def eq1(vars):
+            theta2, theta3, theta4 = vars
+            return l2 * np.cos(theta2) + l3 * np.cos(theta2 + theta3) + l4 * np.cos(theta2 + theta3 + theta4) - ext
+
+        def eq2(vars):
+            theta2, theta3, theta4 = vars
+            return l2 * np.sin(theta2) + l3 * np.sin(theta2 + theta3) + l4 * np.sin(theta2 + theta3 + theta4) + 11.5 - z
+        
+        # Define the constraint dictionary for minimize
+        cons = ({'type': 'eq', 'fun': eq1},{'type': 'eq', 'fun': eq2})
+        # Define the bounds for theta2, theta3, and theta4 (0 to 180 degrees, converted to radians)
+        bounds = [(-np.pi/2 - .5, np.pi/2 + .5), (-np.pi -.5, .5), (-np.pi -.5, .5)]
+
+        l2 = self.l2
+        l3 = self.l3
+        l4 = self.l4
+
+        ext = math.sqrt(math.pow(x,2)+math.pow(y,2))
+    
+        if x>0:
+            theta1 = math.degrees(math.atan((y/x)))
+        else:
+            theta1 = 90
+
+        initial_guess = [np.pi/4, np.pi/4, np.pi/4]
+        result = minimize(objective, initial_guess, constraints=cons, bounds = bounds, method='SLSQP')
+
+        if result.success:
+            theta2, theta3, theta4 = np.degrees(result.x)
+            theta3 = theta3 + 90
+            theta4 = theta4 + 90
+            '''
+            if theta2 < 0:
+                theta2 = theta2 + 180
+            if theta3 < 0:
+                theta3 = theta3 + 180
+            if theta4 < 0:
+                theta4 = theta4 + 180
+            '''
+            return [theta1, theta2, theta3, theta4]
+        else:
+            print("Position cannot be reached", result.message)
+            return
+    
             
         
         
