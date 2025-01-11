@@ -52,7 +52,7 @@ Arm.Arm_serial_servo_write6_array([theta1, theta2, theta3, theta4, 90,180], 4000
 time.sleep(5)
 [x, y, z, ext] = Arm.get_pos_xyz()
 print(x, ", ", y, ",", z)
-#print(x1, ", ", y1, ",", z1)
+
 
 
 

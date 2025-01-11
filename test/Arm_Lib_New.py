@@ -649,20 +649,25 @@ class Arm_Device1(object):
         
         # Define the constraint dictionary for minimize
         cons = ({'type': 'eq', 'fun': eq1},{'type': 'eq', 'fun': eq2})
+
         # Define the bounds for theta2, theta3, and theta4 (0 to 180 degrees, converted to radians)
         bounds = [(-np.pi/2 - .5, np.pi/2 + .5), (-np.pi -.5, .5), (-np.pi -.5, .5)]
 
+        #define link lengths
         l2 = self.l2
         l3 = self.l3
         l4 = self.l4
 
+        #calc forward arm extension
         ext = math.sqrt(math.pow(x,2)+math.pow(y,2))
-    
+
+        #calculate theta1
         if x>0:
             theta1 = math.degrees(math.atan((y/x)))
         else:
             theta1 = 90
 
+        #solve for theta2 - theta4
         initial_guess = [np.pi/4, np.pi/4, np.pi/4]
         result = minimize(objective, initial_guess, constraints=cons, bounds = bounds, method='SLSQP')
 
@@ -670,14 +675,6 @@ class Arm_Device1(object):
             theta2, theta3, theta4 = np.degrees(result.x)
             theta3 = theta3 + 90
             theta4 = theta4 + 90
-            '''
-            if theta2 < 0:
-                theta2 = theta2 + 180
-            if theta3 < 0:
-                theta3 = theta3 + 180
-            if theta4 < 0:
-                theta4 = theta4 + 180
-            '''
             return [theta1, theta2, theta3, theta4]
         else:
             print("Position cannot be reached", result.message)
